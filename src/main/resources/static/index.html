@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini Shop</title>
+<style>
+:root{--blue:#234E8F;--mag:#D0247B;--ink:#1B2A49;--bg:#F4F7FB;--line:#D5DCE8}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--blue);color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:4px solid var(--mag)}
+header h1{margin:0;font-size:22px}
+main{max-width:1150px;margin:20px auto;padding:0 16px}
+h2{color:var(--blue);margin:0 0 12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 2px 6px rgba(27,42,73,.08);margin-bottom:16px}
+.center{max-width:360px;margin:60px auto}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+.products{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.prod{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;box-shadow:0 2px 6px rgba(27,42,73,.08)}
+.prod h3{margin:8px 0 4px;font-size:16px}.prod p{margin:0 0 8px;font-size:13px;color:#4A5568;min-height:34px}
+.tile{height:70px;border-radius:6px;background:linear-gradient(135deg,var(--blue),var(--mag));color:#fff;font-size:34px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+button{background:var(--blue);color:#fff;border:0;border-radius:5px;padding:8px 12px;cursor:pointer;font-size:14px}
+button:hover{background:var(--mag)}
+button.ghost{background:#fff;color:var(--blue);border:1px solid var(--blue)}
+button.light{background:transparent;color:#fff;border:1px solid #fff;margin-left:8px}
+.prod button,.card button{margin-top:4px}
+input,select{width:100%;padding:8px;margin:4px 0 8px;border:1px solid var(--line);border-radius:5px;font-size:14px}
+label{font-size:13px;font-weight:600}
+.hint{font-size:13px;color:#4A5568}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+th{color:var(--blue)}
+.badge{padding:2px 8px;border-radius:10px;font-size:12px;color:#fff;background:#888}
+.PAID{background:#2B8A3E}.PAYMENT_FAILED{background:#C92A2A}.PAYMENT_PENDING{background:#E67700}
+.hidden{display:none}
+#toast{position:fixed;bottom:20px;right:20px;padding:12px 18px;border-radius:6px;color:#fff;display:none;z-index:9}
+#toast.ok{background:#2B8A3E}#toast.err{background:#C92A2A}
+.total{font-size:18px;font-weight:700;text-align:right;margin:8px 0}
+@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+@media print{header,#loginView,.grid2,button{display:none!important}}
+</style>
+</head>
+<body>
+<header><h1>Mini Shop</h1><div id="userbox"></div></header>
+<main>
+  <section id="loginView" class="card center">
+    <h2>Login</h2>
+    <p class="hint">Demo users: student / student123 &nbsp;|&nbsp; admin / admin123</p>
+    <input id="u" placeholder="Username" value="student">
+    <input id="p" type="password" placeholder="Password" value="student123">
+    <button onclick="login()">Login</button>
+  </section>
+
+  <div id="shopView" class="hidden">
+    <div class="grid2">
+      <section><h2>Products</h2><div id="products" class="products"></div></section>
+      <aside>
+        <section class="card">
+          <h2>Your Cart</h2>
+          <div id="cart"></div>
+          <label>Test card (mock gateway)</label>
+          <select onchange="document.getElementById('card').value=this.value">
+            <option value="4111111111111111">Success - 4111 1111 1111 1111</option>
+            <option value="4000000000000002">Declined - 4000 0000 0000 0002</option>
+            <option value="4000000000009995">Insufficient funds - 4000 0000 0000 9995</option>
+            <option value="4000000000000119">Slow / timeout - 4000 0000 0000 0119</option>
+            <option value="1234567812345678">Invalid card</option>
+          </select>
+          <input id="card" value="4111111111111111">
+          <button onclick="checkout()">Checkout &amp; Pay</button>
+          <button class="ghost" onclick="clearCart()">Clear cart</button>
+        </section>
+        <section class="card"><h2>My Orders</h2><div id="orders"></div></section>
+      </aside>
+    </div>
+    <section id="receipt" class="card hidden"></section>
+  </div>
+</main>
+<div id="toast"></div>
+
+<script>
+let token = sessionStorage.getItem('token'), user = sessionStorage.getItem('user');
+const $ = id => document.getElementById(id);
+const money = n => '\u20B9' + Number(n).toLocaleString('en-IN', {minimumFractionDigits: 2});
+const show = (id, on) => $(id).classList.toggle('hidden', !on);
+
+function toast(msg, ok = true) {
+  const t = $('toast'); t.textContent = msg; t.className = ok ? 'ok' : 'err'; t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3500);
+}
+
+async function api(path, method = 'GET', body) {
+  const res = await fetch('/api' + path, {
+    method,
+    headers: {'Content-Type': 'application/json', 'X-Auth-Token': token || ''},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { if (res.status === 401 && token) logout(); throw new Error(data.error || 'Request failed'); }
+  return data;
+}
+
+async function login() {
+  try {
+    const r = await api('/auth/login', 'POST', {username: $('u').value, password: $('p').value});
+    token = r.token; user = r.username;
+    sessionStorage.setItem('token', token); sessionStorage.setItem('user', user);
+    start();
+  } catch (e) { toast(e.message, false); }
+}
+function logout() { token = null; user = null; sessionStorage.clear(); start(); }
+
+function start() {
+  show('loginView', !token); show('shopView', !!token); show('receipt', false);
+  $('userbox').innerHTML = token ? `Hello, <b>${user}</b><button class="light" onclick="logout()">Logout</button>` : '';
+  if (token) { loadProducts(); loadCart(); loadOrders(); }
+}
+
+async function loadProducts() {
+  try {
+    const ps = await api('/products');
+    $('products').innerHTML = ps.map(p => `
+      <div class="prod"><div class="tile">${p.name[0]}</div><h3>${p.name}</h3><p>${p.description}</p>
+      <div class="row"><b>${money(p.price)}</b><small>Stock: ${p.stock}</small></div>
+      <button onclick="addToCart(${p.id})">Add to cart</button></div>`).join('');
+  } catch (e) { toast(e.message, false); }
+}
+
+async function addToCart(id) {
+  try { await api('/cart', 'POST', {productId: id, quantity: 1}); toast('Added to cart'); loadCart(); }
+  catch (e) { toast(e.message, false); }
+}
+
+async function loadCart() {
+  try {
+    const c = await api('/cart');
+    $('cart').innerHTML = c.items.length
+      ? `<table>${c.items.map(i => `<tr><td>${i.name} x ${i.quantity}</td><td>${money(i.subtotal)}</td></tr>`).join('')}</table>
+         <div class="total">Total: ${money(c.total)}</div>`
+      : '<p class="hint">Cart is empty</p>';
+  } catch (e) { toast(e.message, false); }
+}
+
+async function clearCart() {
+  try { await api('/cart', 'DELETE'); loadCart(); } catch (e) { toast(e.message, false); }
+}
+
+async function checkout() {
+  try {
+    toast('Processing payment...');
+    const r = await api('/orders/checkout', 'POST', {cardNumber: $('card').value});
+    afterPayment(r);
+  } catch (e) { toast(e.message, false); }
+}
+
+async function retry(n) {
+  try {
+    toast('Retrying payment...');
+    const r = await api(`/orders/${n}/pay`, 'POST', {cardNumber: $('card').value});
+    afterPayment(r);
+  } catch (e) { toast(e.message, false); }
+}
+
+function afterPayment(r) {
+  const ok = r.order.status === 'PAID';
+  toast(ok ? 'Payment successful' : 'Payment ' + r.order.status.replace('PAYMENT_', '').toLowerCase(), ok);
+  showReceipt(r); loadCart(); loadProducts(); loadOrders();
+}
+
+async function loadOrders() {
+  try {
+    const os = await api('/orders');
+    $('orders').innerHTML = os.length ? os.map(o => `
+      <div class="row"><div><b>${o.orderNumber}</b><br><small>${money(o.total)}</small></div>
+      <span class="badge ${o.status}">${o.status}</span></div>
+      <div class="row"><button class="ghost" onclick="viewReceipt('${o.orderNumber}')">Receipt</button>
+      ${o.status !== 'PAID' ? `<button onclick="retry('${o.orderNumber}')">Retry payment</button>` : ''}</div><hr>`).join('')
+      : '<p class="hint">No orders yet</p>';
+  } catch (e) { toast(e.message, false); }
+}
+
+async function viewReceipt(n) {
+  try { showReceipt(await api(`/orders/${n}/receipt`)); } catch (e) { toast(e.message, false); }
+}
+
+function showReceipt(r) {
+  const o = r.order;
+  $('receipt').innerHTML = `
+    <h2>Receipt - ${o.orderNumber}</h2>
+    <p>Date: ${new Date(o.createdAt).toLocaleString()} &nbsp;|&nbsp; Customer: ${o.username} &nbsp;|&nbsp;
+       Status: <span class="badge ${o.status}">${o.status}</span></p>
+    <table><tr><th>Item</th><th>Price</th><th>Qty</th><th>Amount</th></tr>
+      ${r.items.map(i => `<tr><td>${i.productName}</td><td>${money(i.price)}</td><td>${i.quantity}</td><td>${money(i.price * i.quantity)}</td></tr>`).join('')}
+    </table>
+    <div class="total">Total: ${money(o.total)}</div>
+    <h3>Payment attempts</h3>
+    <table><tr><th>Transaction</th><th>Status</th><th>Message</th><th>Card</th></tr>
+      ${r.payments.map(p => `<tr><td>${p.transactionId || '-'}</td><td>${p.status}</td><td>${p.message}</td><td>**** ${p.cardLast4}</td></tr>`).join('')}
+    </table>
+    <button onclick="window.print()">Print receipt</button>`;
+  show('receipt', true);
+  $('receipt').scrollIntoView({behavior: 'smooth'});
+}
+
+start();
+</script>
+</body>
+</html>
